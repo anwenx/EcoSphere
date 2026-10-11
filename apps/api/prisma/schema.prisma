@@ -1,0 +1,390 @@
+// Spatial columns use Unsupported("geography(Point,4326)"); they are read/written
+// with parameterized raw SQL (ST_SetSRID/ST_MakePoint, ST_Within, ST_AsGeoJSON).
+// GiST indexes, CHECK constraints and partial unique indexes live in constraints.sql,
+// appended to the first migration (see docs/database.md).
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  DRIVER
+}
+enum BinStatus {
+  NORMAL
+  NEEDS_COLLECTION
+  OVERFLOWING
+  OUT_OF_SERVICE
+}
+enum VehicleStatus {
+  AVAILABLE
+  ON_ROUTE
+  MAINTENANCE
+  UNAVAILABLE
+}
+enum RouteStatus {
+  DRAFT
+  PUBLISHED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+enum StopStatus {
+  PENDING
+  ARRIVED
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+enum CollectionOutcome {
+  COLLECTED
+  PARTIAL
+  INACCESSIBLE
+  FAILED
+}
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  TIMED_OUT
+}
+enum SolverStatus {
+  OPTIMAL
+  FEASIBLE
+  INFEASIBLE
+  TIMED_OUT_FEASIBLE
+  FAILED
+}
+enum CostSource {
+  OSRM_ROAD
+  STRAIGHT_LINE_APPROX
+}
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+enum AlertType {
+  CRITICAL_FILL
+  OVERFLOW
+  FAILED_COLLECTION
+  DELAYED_ROUTE
+  VEHICLE_BREAKDOWN
+  UNASSIGNED_CRITICAL_BIN
+  OPTIMIZATION_FAILURE
+  STALE_VEHICLE_POSITION
+}
+enum IssueType {
+  BLOCKED_ROAD
+  INACCESSIBLE_BIN
+  VEHICLE_ISSUE
+}
+enum DataOrigin {
+  REAL
+  DEMO
+  SIMULATED
+}
+
+model User {
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  passwordHash  String
+  role          Role
+  isActive      Boolean  @default(true)
+  tokenVersion  Int      @default(0) // bump to revoke all sessions
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  vehicle       Vehicle?
+  routes        Route[]
+  collections   CollectionRecord[]
+  issues        DriverIssue[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+
+  @@index([role, isActive])
+}
+
+model Zone {
+  id          String  @id @default(uuid())
+  name        String
+  code        String  @unique
+  description String?
+  boundary    Unsupported("geography(Polygon,4326)")?
+  isActive    Boolean @default(true)
+  origin      DataOrigin @default(REAL)
+  createdAt   DateTime @default(now())
+  bins        Bin[]
+}
+
+model Depot {
+  id        String  @id @default(uuid())
+  name      String
+  location  Unsupported("geography(Point,4326)")
+  opensAt   String  @default("06:00")
+  closesAt  String  @default("20:00")
+  isActive  Boolean @default(true)
+  origin    DataOrigin @default(REAL)
+  routes    Route[]
+}
+
+model Bin {
+  id              String    @id @default(uuid())
+  code            String    @unique
+  type            String
+  location        Unsupported("geography(Point,4326)")
+  fillPercent     Int       @default(0)
+  capacityLiters  Int
+  status          BinStatus @default(NORMAL)
+  zoneId          String
+  zone            Zone      @relation(fields: [zoneId], references: [id])
+  origin          DataOrigin @default(REAL)
+  lastCollectedAt DateTime?
+  version         Int       @default(1) // optimistic concurrency
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  stops           RouteStop[]
+  collections     CollectionRecord[]
+
+  @@index([status])
+  @@index([zoneId, status])
+  @@index([fillPercent])
+}
+
+model Vehicle {
+  id              String        @id @default(uuid())
+  code            String        @unique
+  type            String
+  capacityLiters  Int
+  maxStops        Int?          // operational constraint, separate from liters
+  location        Unsupported("geography(Point,4326)")?
+  locationAt      DateTime?
+  locationOrigin  DataOrigin    @default(REAL)
+  status          VehicleStatus @default(AVAILABLE)
+  maintenanceNote String?
+  fuelKmPerLiter  Decimal?      @db.Decimal(6, 2)
+  driverId        String?       @unique
+  driver          User?         @relation(fields: [driverId], references: [id])
+  origin          DataOrigin    @default(REAL)
+  version         Int           @default(1)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  routes          Route[]
+  collections     CollectionRecord[]
+  maintenance     MaintenanceRecord[]
+
+  @@index([status])
+}
+
+model MaintenanceRecord {
+  id          String    @id @default(uuid())
+  vehicleId   String
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id])
+  description String
+  reportedAt  DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([vehicleId, reportedAt])
+}
+
+model Route {
+  id                String       @id @default(uuid())
+  code              String       @unique
+  plannedDate       DateTime     @db.Date
+  status            RouteStatus  @default(DRAFT)
+  vehicleId         String
+  vehicle           Vehicle      @relation(fields: [vehicleId], references: [id])
+  driverId          String?
+  driver            User?        @relation(fields: [driverId], references: [id])
+  depotId           String
+  depot             Depot        @relation(fields: [depotId], references: [id])
+  jobId             String?
+  job               OptimizationJob? @relation(fields: [jobId], references: [id])
+  totalDistanceM    Int?
+  drivingSeconds    Int?
+  serviceSeconds    Int?
+  baselineDistanceM Int?         // null => comparison unavailable
+  costSource        CostSource?
+  origin            DataOrigin   @default(REAL)
+  version           Int          @default(1)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  stops             RouteStop[]
+
+  @@index([plannedDate, status])
+  @@index([vehicleId, plannedDate])
+  @@index([driverId, plannedDate])
+}
+
+model RouteStop {
+  id               String     @id @default(uuid())
+  routeId          String
+  route            Route      @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  binId            String
+  bin              Bin        @relation(fields: [binId], references: [id])
+  stopOrder        Int
+  status           StopStatus @default(PENDING)
+  estimatedArrival DateTime?
+  serviceSeconds   Int        @default(180)
+  expectedLiters   Int?
+  actualArrival    DateTime?
+  collectedAt      DateTime?
+  collection       CollectionRecord?
+
+  @@unique([routeId, stopOrder])
+  @@unique([routeId, binId])
+  @@index([binId])
+  @@index([status])
+}
+
+model CollectionRecord {
+  id             String            @id @default(uuid())
+  binId          String
+  bin            Bin               @relation(fields: [binId], references: [id])
+  vehicleId      String
+  vehicle        Vehicle           @relation(fields: [vehicleId], references: [id])
+  driverId       String?
+  driver         User?             @relation(fields: [driverId], references: [id])
+  routeStopId    String?           @unique // blocks duplicate submissions per stop
+  routeStop      RouteStop?        @relation(fields: [routeStopId], references: [id])
+  collectedAt    DateTime
+  fillBefore     Int
+  fillAfter      Int?
+  quantityLiters Int?
+  outcome        CollectionOutcome
+  notes          String?
+  imageRef       String?
+  origin         DataOrigin        @default(REAL)
+  createdAt      DateTime          @default(now())
+
+  @@index([binId, collectedAt])
+  @@index([collectedAt])
+  @@index([vehicleId, collectedAt])
+}
+
+model OptimizationJob {
+  id            String      @id @default(uuid())
+  status        JobStatus   @default(QUEUED)
+  requestedById String
+  plannedDate   DateTime    @db.Date
+  params        Json
+  error         String?
+  createdAt     DateTime    @default(now())
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  result        OptimizationResult?
+  routes        Route[]
+
+  @@index([status, createdAt])
+}
+
+model OptimizationResult {
+  id                       String          @id @default(uuid())
+  jobId                    String          @unique
+  job                      OptimizationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  solverStatus             SolverStatus
+  costSource               CostSource
+  objectiveValue           BigInt?
+  optimizedDistanceM       Int?
+  baselineDistanceM        Int?
+  distanceReductionPercent Decimal?        @db.Decimal(6, 2) // null if baseline missing/zero/infeasible
+  routesJson               Json
+  unassignedJson           Json            // [{binId, reason}]
+  violationsJson           Json
+  validated                Boolean         @default(false)
+  createdAt                DateTime        @default(now())
+}
+
+model Alert {
+  id           String        @id @default(uuid())
+  type         AlertType
+  severity     AlertSeverity
+  status       AlertStatus   @default(OPEN)
+  entityType   String
+  entityId     String
+  description  String
+  origin       DataOrigin    @default(REAL)
+  assignedToId String?
+  resolution   String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([status, severity, createdAt])
+  @@index([entityType, entityId])
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+model DriverIssue {
+  id        String    @id @default(uuid())
+  type      IssueType
+  driverId  String
+  driver    User      @relation(fields: [driverId], references: [id])
+  routeId   String?
+  binId     String?
+  vehicleId String?
+  notes     String
+  createdAt DateTime  @default(now())
+
+  @@index([type, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String
+  entityId   String?
+  meta       Json?
+  requestId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model SimulationState {
+  id         Int       @id @default(1) // singleton row
+  status     String    @default("STOPPED") // STOPPED | RUNNING | PAUSED
+  step       Int       @default(0)
+  tickMs     Int       @default(5000)
+  lockedBy   String?   // single-runner lease so only one API instance ticks
+  leaseUntil DateTime?
+  updatedAt  DateTime  @updatedAt
+}

@@ -1,0 +1,257 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* EcoSphere — Black / Charcoal / Neon Green */
+
+:root {
+  color-scheme: dark;
+
+  --eco-bg: #050505;
+  --eco-sidebar: #080908;
+  --eco-card: #0d0f0d;
+  --eco-card-hover: #141714;
+  --eco-panel: #101210;
+  --eco-border: #252925;
+
+  --eco-accent: #a3e635;
+  --eco-accent-hover: #84cc16;
+  --eco-accent-soft: rgb(163 230 53 / 10%);
+  --eco-blue: #38bdf8;
+
+  --eco-text: #f4f5f4;
+  --eco-muted: #929992;
+
+  --eco-critical: #fb5252;
+  --eco-high: #f59e0b;
+  --eco-medium: #eab308;
+  --eco-low: #a3e635;
+
+  --eco-radius: 12px;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    border-color: var(--eco-border);
+  }
+
+  html {
+    min-height: 100%;
+    background: var(--eco-bg);
+    color: var(--eco-text);
+    color-scheme: dark;
+    scrollbar-color: #353935 #050505;
+  }
+
+  body {
+    @apply font-sans antialiased;
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    background: var(--eco-bg);
+    color: var(--eco-text);
+    font-feature-settings: "ss01" on, "cv11" on;
+  }
+
+  #root {
+    min-height: 100vh;
+    background: var(--eco-bg);
+    color: var(--eco-text);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--eco-accent);
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background: rgb(163 230 53 / 28%);
+    color: #fff;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--eco-bg);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #353935;
+    border: 2px solid var(--eco-bg);
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #4b524b;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border;
+    background: var(--eco-card);
+    border-color: var(--eco-border);
+    box-shadow: 0 8px 28px rgb(0 0 0 / 20%);
+    transition:
+      background-color 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease,
+      transform 160ms ease;
+  }
+
+  .card:hover {
+    background: var(--eco-card-hover);
+    border-color: #3a443a;
+    box-shadow: 0 10px 32px rgb(0 0 0 / 30%);
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 font-semibold;
+    color: #10140b;
+    background: var(--eco-accent);
+    transition:
+      background-color 160ms ease,
+      box-shadow 160ms ease,
+      transform 160ms ease;
+  }
+
+  .btn-primary:hover {
+    background: var(--eco-accent-hover);
+    box-shadow: 0 0 0 3px rgb(163 230 53 / 10%);
+  }
+
+  .btn-primary:active {
+    transform: translateY(1px);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 font-medium;
+    color: #c6cbc6;
+    transition:
+      color 160ms ease,
+      background-color 160ms ease;
+  }
+
+  .btn-ghost:hover {
+    background: rgb(255 255 255 / 5%);
+    color: #fff;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold;
+  }
+
+  .badge-critical {
+    @apply badge;
+    color: #ff9292;
+    background: rgb(251 82 82 / 9%);
+    border-color: rgb(251 82 82 / 25%);
+  }
+
+  .badge-warning {
+    @apply badge;
+    color: #fbc76b;
+    background: rgb(245 158 11 / 9%);
+    border-color: rgb(245 158 11 / 22%);
+  }
+
+  .badge-success {
+    @apply badge;
+    color: var(--eco-accent);
+    background: rgb(163 230 53 / 8%);
+    border-color: rgb(163 230 53 / 20%);
+  }
+
+  .badge-info {
+    @apply badge;
+    color: #7dd3fc;
+    background: rgb(56 189 248 / 8%);
+    border-color: rgb(56 189 248 / 20%);
+  }
+
+  .ecosphere-page {
+    min-height: 100vh;
+    background: var(--eco-bg);
+    color: var(--eco-text);
+  }
+
+  .ecosphere-panel {
+    background: var(--eco-card);
+    border: 1px solid var(--eco-border);
+    border-radius: var(--eco-radius);
+  }
+
+  .ecosphere-muted {
+    color: var(--eco-muted);
+  }
+
+  .ecosphere-accent {
+    color: var(--eco-accent);
+  }
+
+  .ecosphere-input {
+    width: 100%;
+    border: 1px solid var(--eco-border);
+    border-radius: 8px;
+    background: #090a09;
+    color: var(--eco-text);
+    padding: 10px 12px;
+  }
+
+  .ecosphere-input::placeholder {
+    color: #737a73;
+  }
+
+  .ecosphere-input:focus {
+    border-color: var(--eco-accent);
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(163 230 53 / 10%);
+  }
+}
+
+/* Critical waste-bin marker animation */
+@keyframes ecosphere-critical-pulse {
+  0%,
+  100% {
+    box-shadow: 0 2px 8px rgb(0 0 0 / 45%);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 6px rgb(251 82 82 / 15%),
+      0 2px 12px rgb(251 82 82 / 45%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
