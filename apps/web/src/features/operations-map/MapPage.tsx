@@ -1,5 +1,11 @@
-
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import maplibregl, {
   type GeoJSONSource,
@@ -390,60 +396,125 @@ export default function MapPage() {
     queryKey: ["bins-map"],
     queryFn: () => api<ApiResponse<Bin[]>>("/bins?limit=120"),
     retry: 1,
+    staleTime: 15_000,
   });
 
   const vehiclesQuery = useQuery<ApiResponse<Vehicle[]>>({
     queryKey: ["vehicles-map"],
     queryFn: () => api<ApiResponse<Vehicle[]>>("/vehicles"),
     retry: 1,
+    staleTime: 15_000,
   });
 
+  // Fetch route summaries before loading individual route details.
   const routesQuery = useQuery<ApiResponse<RouteSummary[]>>({
     queryKey: ["routes-map"],
     queryFn: () =>
       api<ApiResponse<RouteSummary[]>>("/routes?page=1&pageSize=50"),
     retry: 1,
+    staleTime: 15_000,
   });
 
-  const bins = Array.isArray(binsQuery.data?.data) ? binsQuery.data.data : [];
+  const bins = Array.isArray(binsQuery.data?.data)
+    ? binsQuery.data.data
+    : [];
+
   const vehicles = Array.isArray(vehiclesQuery.data?.data)
     ? vehiclesQuery.data.data
     : [];
+
   const routes = Array.isArray(routesQuery.data?.data)
     ? routesQuery.data.data
     : [];
 
+  // Load route details independently so one failed request
+  // does not prevent other routes from appearing on the map.
   const routeDetailsQuery = useQuery<RouteDetail[]>({
     queryKey: ["routes-map-details", routes.map((route) => route.id)],
     enabled: routes.length > 0,
+
     queryFn: async () => {
       const results = await Promise.allSettled(
-        routes.map(async (route) => {
+        routes.map(async (route): Promise<RouteDetail> => {
           const response = await api<ApiResponse<RouteDetail>>(
-            `/routes/${route.id}`,
+            `/routes/${encodeURIComponent(route.id)}`,
           );
-          return response.data;
+
+          if (
+            !response?.success ||
+            !response.data ||
+            response.data.id !== route.id
+          ) {
+            throw new Error(
+              `Invalid route detail response for ${route.code}`,
+            );
+          }
+
+          const detail = response.data;
+
+          const stops: RouteStop[] = Array.isArray(detail.stops)
+            ? detail.stops
+                .filter(
+                  (stop): stop is RouteStop =>
+                    Boolean(
+                      stop &&
+                        typeof stop.id === "string" &&
+                        typeof stop.binId === "string" &&
+                        Number.isFinite(Number(stop.stopOrder)) &&
+                        validCoordinates(stop.lat, stop.lng),
+                    ),
+                )
+                .sort((a, b) => a.stopOrder - b.stopOrder)
+            : [];
+
+          const completed = stops.filter(
+            (stop) => stop.status?.toUpperCase() === "COMPLETED",
+          ).length;
+
+          return {
+            ...route,
+            ...detail,
+            depot: detail.depot ?? null,
+            stops,
+            progress: {
+              total: detail.progress?.total ?? stops.length,
+              completed: detail.progress?.completed ?? completed,
+              remaining:
+                detail.progress?.remaining ??
+                Math.max(0, stops.length - completed),
+            },
+          };
         }),
       );
 
       const details: RouteDetail[] = [];
-      const failed: string[] = [];
+      const failures: string[] = [];
 
       results.forEach((result, index) => {
         if (result.status === "fulfilled") {
           details.push(result.value);
         } else {
-          failed.push(routes[index].code);
+          const reason = result.reason;
+
+          failures.push(
+            `${routes[index].code}: ${
+              reason instanceof Error
+                ? reason.message
+                : String(reason)
+            }`,
+          );
         }
       });
 
-      if (failed.length > 0) {
-        console.warn("Could not load route details:", failed);
+      if (failures.length > 0) {
+        console.error("Failed to load route details:", failures);
       }
 
       return details;
     },
+
     retry: 1,
+    staleTime: 15_000,
   });
 
   const routeDetails = routeDetailsQuery.data ?? [];
@@ -1091,8 +1162,8 @@ export default function MapPage() {
                       if (coordinates) flyToCoordinates(coordinates, 14);
                     }}
                     className={`w-full rounded-xl border p-3 text-left transition ${active
-                        ? "border-[#38bdf8]/60 bg-[#38bdf8]/[0.06]"
-                        : "border-[#252925] bg-[#0d0f0d] hover:border-[#414941]"
+                      ? "border-[#38bdf8]/60 bg-[#38bdf8]/[0.06]"
+                      : "border-[#252925] bg-[#0d0f0d] hover:border-[#414941]"
                       }`}
                   >
                     <div className="flex items-center gap-3">
@@ -1169,8 +1240,8 @@ export default function MapPage() {
                       if (detail) fitRoute(detail);
                     }}
                     className={`w-full rounded-xl border p-3 text-left transition ${active
-                        ? "border-[#a3e635]/60 bg-[#a3e635]/[0.06]"
-                        : "border-[#252925] bg-[#0d0f0d] hover:border-[#414941]"
+                      ? "border-[#a3e635]/60 bg-[#a3e635]/[0.06]"
+                      : "border-[#252925] bg-[#0d0f0d] hover:border-[#414941]"
                       }`}
                   >
                     <div className="flex items-center gap-2">
@@ -1476,7 +1547,7 @@ function StatCard({
   value: string;
   suffix?: string;
   detail: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   return (
     <div className="rounded-xl border border-[#252925] bg-[#0d0f0d] p-4 transition hover:border-[#3a443a] hover:bg-[#101310]">
